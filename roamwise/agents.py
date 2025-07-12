@@ -4,6 +4,7 @@ Using only allowed tools: Weave, Exa, Browserbase, Fly.io, Google A2A
 """
 
 import weave
+import os
 from typing import Dict, Any, Optional
 from datetime import datetime, timezone
 
@@ -16,21 +17,26 @@ from .config import config
 def create_gemini_llm():
     """Create Gemini LLM with Google Vertex AI API key"""
     try:
-        # Use the new Google Vertex AI API key (now enabled)
+        # Get API key from environment variable
+        vertex_api_key = os.getenv("GOOGLE_VERTEX_API_KEY")
+        if not vertex_api_key:
+            raise ValueError("GOOGLE_VERTEX_API_KEY environment variable not set")
+
         return LLM(
             model="gemini/gemini-1.5-flash",  # Flash model for reliability
             temperature=0.2,  # Low temperature for consistent output
-            api_key="AIzaSyAL_SKGgflwXejY_-tgMGJgHI9SrRLQ7vU",  # Google Vertex AI key
+            api_key=vertex_api_key,  # Google Vertex AI key from environment
             max_tokens=1500,  # Conservative token limit
             timeout=45  # Reasonable timeout
         )
     except Exception as e:
         print(f"❌ Gemini LLM creation failed: {e}")
-        # Fallback configuration
+        # Fallback configuration with environment variable
+        vertex_api_key = os.getenv("GOOGLE_VERTEX_API_KEY", "")
         return LLM(
             model="gemini/gemini-1.5-flash",
             temperature=0.3,
-            api_key="AIzaSyAL_SKGgflwXejY_-tgMGJgHI9SrRLQ7vU"
+            api_key=vertex_api_key
         )
 
 
