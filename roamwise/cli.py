@@ -149,7 +149,11 @@ def search(
                 dep_date = datetime.strptime(departure, "%Y-%m-%d")
                 ret_date = dep_date + timedelta(days=days)
                 return_date = ret_date.strftime("%Y-%m-%d")
-        
+
+        # Ensure days is set for one-way trips
+        if not days:
+            days = 7  # Default to 7 days for one-way trips
+
         if not budget:
             budget = float(Prompt.ask("💰 [bold cyan]Maximum budget[/bold cyan] ($)", default="3000"))
         
@@ -188,7 +192,8 @@ def search(
                 destination=destination,
                 departure_date=departure,
                 return_date=return_date,
-                budget=budget
+                budget=budget,
+                days=days  # Pass the days parameter
             )
 
             progress.update(task, description="✅ CrewAI Agents completed!")
@@ -203,7 +208,16 @@ def search(
             # Show CrewAI result
             crew_result = trip_result.get('crew_result', '')
             console.print(f"🤖 CrewAI Result:")
-            console.print(Panel(crew_result, title="Multi-Agent Analysis", border_style="green"))
+
+            # Extract text content from CrewAI result object
+            if hasattr(crew_result, 'raw'):
+                result_text = str(crew_result.raw)
+            elif hasattr(crew_result, '__str__'):
+                result_text = str(crew_result)
+            else:
+                result_text = "Result completed successfully"
+
+            console.print(Panel(result_text, title="✈️ Flight Search Results", border_style="green"))
             console.print()
 
             console.print(f"✅ Flight search and analysis completed by specialized agents")
