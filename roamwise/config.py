@@ -76,6 +76,12 @@ class Config:
                     raise ValueError("WANDB_API_KEY not found in environment or ~/.netrc")
             except (FileNotFoundError, netrc.NetrcParseError):
                 raise ValueError("WANDB_API_KEY not found in environment or ~/.netrc")
+
+        # Check Browserbase API key
+        if cls.BROWSERBASE_API_KEY and cls.BROWSERBASE_API_KEY != "your_browserbase_api_key_here":
+            print("✅ Browserbase API key configured")
+        else:
+            print("⚠️ Browserbase API key not configured - will use fallback data")
     
     @classmethod
     def init_weave(cls):

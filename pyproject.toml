@@ -21,6 +21,8 @@ typer = "^0.16.0"
 crewai = "^0.141.0"
 crewai-tools = "^0.51.1"
 exa-py = "^1.14.16"
+browserbase = "^0.3.0"
+selenium = "^4.15.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.0.0"
