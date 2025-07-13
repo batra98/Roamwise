@@ -35,8 +35,7 @@ class Config:
     GOOGLE_A2A_CLIENT_ID = os.getenv("GOOGLE_A2A_CLIENT_ID")
     GOOGLE_A2A_CLIENT_SECRET = os.getenv("GOOGLE_A2A_CLIENT_SECRET")
 
-    # Google Gemini API Configuration
-    GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+    # Google Vertex AI Configuration
     GOOGLE_VERTEX_API_KEY = os.getenv("GOOGLE_VERTEX_API_KEY")
     
     # Weave Configuration
