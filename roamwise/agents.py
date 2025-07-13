@@ -1,43 +1,60 @@
 """
-CrewAI Multi-Agent System for RoamWise
+CrewAI Multi-Agent System for RoamWise with Enhanced Weave Logging
 Using only allowed tools: Weave, Exa, Browserbase, Fly.io, Google A2A
+Comprehensive observability and performance monitoring
 """
 
 import weave
 import os
+import time
+import traceback
 from typing import Dict, Any, Optional
 from datetime import datetime, timezone
 
 from crewai import Agent, Task, Crew, Process, LLM
 
 from .config import config
+from .weave_functions import weave_trace, WeaveLogger
 
 
 # CrewAI LLM Configuration
 def create_gemini_llm():
-    """Create Gemini LLM with Google Vertex AI API key"""
+    """Create Gemini LLM using CrewAI recommended configuration"""
     try:
-        # Get API key from environment variable
-        vertex_api_key = os.getenv("GOOGLE_VERTEX_API_KEY")
-        if not vertex_api_key:
-            raise ValueError("GOOGLE_VERTEX_API_KEY environment variable not set")
+        # Check for GEMINI_API_KEY first (CrewAI recommended)
+        gemini_api_key = os.getenv("GEMINI_API_KEY")
+        if not gemini_api_key:
+            # Fallback to GOOGLE_VERTEX_API_KEY for backward compatibility
+            gemini_api_key = os.getenv("GOOGLE_VERTEX_API_KEY")
+            if not gemini_api_key:
+                raise ValueError("GEMINI_API_KEY or GOOGLE_VERTEX_API_KEY environment variable not set")
 
+        # Use CrewAI recommended format: gemini/model-name
         return LLM(
-            model="gemini/gemini-1.5-flash",  # Flash model for reliability
+            model="gemini/gemini-1.5-flash",  # CrewAI format with provider prefix
             temperature=0.2,  # Low temperature for consistent output
-            api_key=vertex_api_key,  # Google Vertex AI key from environment
             max_tokens=1500,  # Conservative token limit
             timeout=45  # Reasonable timeout
         )
     except Exception as e:
         print(f"❌ Gemini LLM creation failed: {e}")
-        # Fallback configuration with environment variable
-        vertex_api_key = os.getenv("GOOGLE_VERTEX_API_KEY", "")
-        return LLM(
-            model="gemini/gemini-1.5-flash",
-            temperature=0.3,
-            api_key=vertex_api_key
-        )
+        print("🔄 Trying fallback configuration...")
+
+        # Fallback: Try with basic configuration
+        gemini_api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_VERTEX_API_KEY", "")
+        try:
+            return LLM(
+                model="gemini/gemini-1.5-flash",
+                temperature=0.3
+            )
+        except Exception as fallback_error:
+            print(f"❌ Fallback LLM creation also failed: {fallback_error}")
+            print("💡 Please check your GEMINI_API_KEY and ensure it's valid for Gemini API")
+            print("💡 Get your API key from: https://aistudio.google.com/apikey")
+            # Return a basic configuration as last resort
+            return LLM(
+                model="gemini/gemini-1.5-flash"
+            )
 
 
 # CrewAI Tools Setup
@@ -57,11 +74,50 @@ class CustomEXASearchTool(BaseTool):
     description: str = "Search the web using EXA's neural search engine for flight information"
     args_schema: Type[BaseModel] = ExaSearchInput
 
+    @weave_trace("exa_search_tool", log_params=True, log_result=True)
     def _run(self, query: str) -> str:
-        """Execute enhanced EXA search with better content extraction"""
+        """Execute enhanced EXA search with comprehensive Weave logging"""
+
+        # Log operation start
+        operation_start = WeaveLogger.log_operation_start("exa_search_tool", {
+            "query": query,
+            "query_length": len(query),
+            "tool_name": self.name
+        })
+
         try:
-            import time
+            # Rate limiting with logging
+            rate_limit_start = time.time()
             time.sleep(0.5)  # Rate limiting - 2 requests per second max
+            rate_limit_time = time.time() - rate_limit_start
+
+            # Enhanced request with detailed logging
+            request_start = time.time()
+            request_payload = {
+                "query": query,
+                "type": "neural",
+                "useAutoprompt": True,
+                "numResults": 12,  # More results for 3 good options
+                "contents": {
+                    "text": True,
+                    "highlights": True,
+                    "summary": True  # Get AI-generated summaries
+                },
+                "includeDomains": [
+                    "skyscanner.com",
+                    "expedia.com",
+                    "kayak.com",
+                    "google.com",
+                    "momondo.com",
+                    "priceline.com",
+                    "orbitz.com",
+                    "travelocity.com",
+                    "cheapflights.com",
+                    "booking.com",
+                    "tripadvisor.com"
+                ],  # Focus on flight booking sites
+                "startPublishedDate": "2023-01-01T00:00:00.000Z"  # More recent content
+            }
 
             response = requests.post(
                 "https://api.exa.ai/search",
@@ -69,37 +125,24 @@ class CustomEXASearchTool(BaseTool):
                     "Authorization": f"Bearer {config.EXA_API_KEY}",
                     "Content-Type": "application/json"
                 },
-                json={
-                    "query": query,
-                    "type": "neural",
-                    "useAutoprompt": True,
-                    "numResults": 12,  # More results for 3 good options
-                    "contents": {
-                        "text": True,
-                        "highlights": True,
-                        "summary": True  # Get AI-generated summaries
-                    },
-                    "includeDomains": [
-                        "skyscanner.com",
-                        "expedia.com",
-                        "kayak.com",
-                        "google.com",
-                        "momondo.com",
-                        "priceline.com",
-                        "orbitz.com",
-                        "travelocity.com",
-                        "cheapflights.com",
-                        "booking.com",
-                        "tripadvisor.com"
-                    ],  # Focus on flight booking sites
-                    "startPublishedDate": "2023-01-01T00:00:00.000Z"  # More recent content
-                },
+                json=request_payload,
                 timeout=30
             )
+
+            request_time = time.time() - request_start
 
             if response.status_code == 200:
                 data = response.json()
                 results = []
+                processing_start = time.time()
+
+                # Enhanced result processing with metrics
+                processing_metrics = {
+                    "total_results": len(data.get('results', [])),
+                    "processed_results": 0,
+                    "price_extractions": 0,
+                    "airline_extractions": 0
+                }
 
                 for i, result in enumerate(data.get('results', []), 1):
                     title = result.get('title', 'N/A')
@@ -112,6 +155,12 @@ class CustomEXASearchTool(BaseTool):
                     price_info = self._extract_price_info(title, text, highlights)
                     airline_info = self._extract_airline_info(title, text, highlights)
 
+                    # Track extraction success
+                    if "Found prices" in price_info:
+                        processing_metrics["price_extractions"] += 1
+                    if "Airlines mentioned" in airline_info:
+                        processing_metrics["airline_extractions"] += 1
+
                     result_text = f"""
 === RESULT {i} ===
 Title: {title}
@@ -123,12 +172,50 @@ Key Highlights: {'; '.join(highlights[:3]) if highlights else 'N/A'}
 Full Text Preview: {text[:400]}...
 """
                     results.append(result_text)
+                    processing_metrics["processed_results"] += 1
+
+                processing_time = time.time() - processing_start
+
+                # Log successful operation
+                success_metrics = {
+                    "rate_limit_time_seconds": rate_limit_time,
+                    "request_time_seconds": request_time,
+                    "processing_time_seconds": processing_time,
+                    "total_time_seconds": time.time() - rate_limit_start,
+                    "response_status": response.status_code,
+                    "response_size_bytes": len(response.content),
+                    **processing_metrics
+                }
+
+                WeaveLogger.log_operation_success(operation_start, {
+                    "results_count": len(results),
+                    "success": True
+                }, success_metrics)
 
                 return "\n".join(results)
             else:
+                # Log API error
+                error_metrics = {
+                    "rate_limit_time_seconds": rate_limit_time,
+                    "request_time_seconds": request_time,
+                    "response_status": response.status_code,
+                    "response_text": response.text[:500]  # Truncate for logging
+                }
+
+                WeaveLogger.log_operation_error(operation_start,
+                    Exception(f"EXA API error: {response.status_code}"),
+                    error_metrics)
+
                 return f"EXA search failed with status {response.status_code}: {response.text}"
 
         except Exception as e:
+            # Log exception
+            error_metrics = {
+                "error_during": "request_or_processing",
+                "query": query
+            }
+
+            WeaveLogger.log_operation_error(operation_start, e, error_metrics)
             return f"EXA search error: {str(e)}"
 
     def _extract_price_info(self, title: str, text: str, highlights: list) -> str:
@@ -221,20 +308,39 @@ class BrowserbaseFlightTool(BaseTool):
     description: str = "Use Browserbase to verify flight prices and availability on booking sites"
     args_schema: Type[BaseModel] = BrowserbaseFlightInput
 
+    @weave_trace("browserbase_verification", log_params=True, log_result=True)
     def _run(self, url: str, search_params: dict) -> str:
-        """Use Browserbase to verify flight details on booking sites"""
-        try:
-            # Simulate Browserbase interaction for now
-            # In production, this would use actual Browserbase API
-            time.sleep(1)  # Simulate browser interaction time
+        """Use Browserbase to verify flight details with enhanced Weave logging"""
 
-            # Extract search parameters
+        # Log operation start
+        operation_start = WeaveLogger.log_operation_start("browserbase_verification", {
+            "url": url,
+            "search_params": search_params,
+            "tool_name": self.name
+        })
+
+        try:
+            # Simulate Browserbase interaction with timing
+            simulation_start = time.time()
+            time.sleep(1)  # Simulate browser interaction time
+            simulation_time = time.time() - simulation_start
+
+            # Extract search parameters with validation
             origin = search_params.get('origin', '')
             destination = search_params.get('destination', '')
             departure_date = search_params.get('departure_date', '')
             return_date = search_params.get('return_date', '')
 
-            # Simulate realistic flight verification results with enhanced details
+            # Validate parameters
+            param_validation = {
+                "origin_valid": bool(origin),
+                "destination_valid": bool(destination),
+                "departure_date_valid": bool(departure_date),
+                "return_date_valid": bool(return_date)
+            }
+
+            # Generate verification data with enhanced metrics
+            generation_start = time.time()
             verification_data = {
                 "verified_prices": self._generate_verified_prices(origin, destination),
                 "flight_details": self._generate_flight_details(origin, destination),
@@ -245,12 +351,41 @@ class BrowserbaseFlightTool(BaseTool):
                     f"https://www.expedia.com/Flights-Search?trip=roundtrip&leg1=from:{origin},to:{destination},departure:{departure_date}&leg2=from:{destination},to:{origin},departure:{return_date}"
                 ],
                 "airlines_verified": ["United", "American", "Delta", "Lufthansa", "Air France"],
-                "verification_timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
+                "verification_timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "verification_metadata": {
+                    "simulation_time_seconds": simulation_time,
+                    "generation_time_seconds": time.time() - generation_start,
+                    "parameter_validation": param_validation,
+                    "url_provided": url,
+                    "simulated_verification": True
+                }
             }
+
+            # Log successful operation
+            success_metrics = {
+                "simulation_time_seconds": simulation_time,
+                "total_time_seconds": time.time() - simulation_start,
+                "urls_generated": len(verification_data["booking_urls"]),
+                "airlines_verified": len(verification_data["airlines_verified"]),
+                "parameter_validation": param_validation
+            }
+
+            WeaveLogger.log_operation_success(operation_start, {
+                "verification_success": True,
+                "data_generated": True
+            }, success_metrics)
 
             return json.dumps(verification_data, indent=2)
 
         except Exception as e:
+            # Log error
+            error_metrics = {
+                "url": url,
+                "search_params": search_params,
+                "error_during": "verification_simulation"
+            }
+
+            WeaveLogger.log_operation_error(operation_start, e, error_metrics)
             return f"Browserbase verification error: {str(e)}"
 
     def _generate_verified_prices(self, origin: str, destination: str) -> dict:
@@ -539,7 +674,7 @@ class CrewAITripOrchestrator:
     def __init__(self):
         self.flight_agent = create_flight_agent()
 
-    @weave.op()
+    @weave_trace("trip_planning_orchestration", log_params=True, log_result=True)
     def plan_trip(
         self,
         origin: str,
@@ -549,10 +684,19 @@ class CrewAITripOrchestrator:
         budget: Optional[float] = None,
         days: Optional[int] = None
     ) -> Dict[str, Any]:
-        """Enhanced trip planning with dual-tool flight search and comprehensive Weave logging"""
-        """
-        Plan trip using CrewAI multi-agent system
-        """
+        """Enhanced trip planning with comprehensive Weave logging and performance monitoring"""
+
+        # Log operation start with detailed parameters
+        operation_start = WeaveLogger.log_operation_start("trip_planning_orchestration", {
+            "origin": origin,
+            "destination": destination,
+            "departure_date": departure_date,
+            "return_date": return_date,
+            "budget": budget,
+            "days": days,
+            "route": f"{origin} → {destination}",
+            "trip_type": "round_trip" if return_date or days else "one_way"
+        })
 
         user_request = {
             "origin": origin,
@@ -570,10 +714,13 @@ class CrewAITripOrchestrator:
             print(f"🔧 Enhanced Flight Agent: Using EXA + Browserbase for {origin} → {destination}")
             print(f"📊 Tools: EXA (discovery) + Browserbase (verification)")
 
-            # Create enhanced orchestration task
+            # Task creation timing
+            task_creation_start = time.time()
             orchestration_task = create_flight_orchestration_task(user_request)
+            task_creation_time = time.time() - task_creation_start
 
-            # Create crew with enhanced dual-tool flight agent
+            # Crew creation timing
+            crew_creation_start = time.time()
             crew = Crew(
                 agents=[self.flight_agent],
                 tasks=[orchestration_task],
@@ -582,40 +729,110 @@ class CrewAITripOrchestrator:
                 max_iter=2,  # Focused execution to prevent loops
                 memory=False  # Disable memory for simplicity
             )
+            crew_creation_time = time.time() - crew_creation_start
 
             # Execute crew with enhanced logging
-            start_time = datetime.now()
+            execution_start = time.time()
             result = crew.kickoff()
-            end_time = datetime.now()
+            execution_time = time.time() - execution_start
+
+            # Detailed performance metrics
+            performance_metrics = {
+                "task_creation_time_seconds": task_creation_time,
+                "crew_creation_time_seconds": crew_creation_time,
+                "crew_execution_time_seconds": execution_time,
+                "total_time_seconds": time.time() - task_creation_start,
+                "crew_agents_count": len(crew.agents),
+                "crew_tasks_count": len(crew.tasks),
+                "crew_process": str(crew.process),
+                "crew_max_iter": getattr(crew, 'max_iter', 'N/A')  # Safe access to max_iter
+            }
+
+            # Analyze result content
+            result_analysis = self._analyze_crew_result(result)
 
             # Log execution metrics
-            execution_time = (end_time - start_time).total_seconds()
             print(f"⏱️ Enhanced search completed in {execution_time:.2f} seconds")
             print(f"🛠️ Tools used: EXA (discovery) + Browserbase (verification)")
 
-            return {
+            # Log successful operation
+            success_result = {
                 "success": True,
                 "crew_result": result,
                 "orchestrator": "Enhanced CrewAI with Dual Tools",
                 "tools_used": ["EXA", "Browserbase"],
                 "execution_time": execution_time,
-                "timestamp": datetime.now(timezone.utc).isoformat()
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "performance_metrics": performance_metrics,
+                "result_analysis": result_analysis
             }
 
+            WeaveLogger.log_operation_success(operation_start, success_result, performance_metrics)
+
+            return success_result
+
         except Exception as e:
-            import traceback
+            # Enhanced error logging with comprehensive details
+            error_time = time.time() - task_creation_start if 'task_creation_start' in locals() else 0
+
             error_details = {
                 "error_type": type(e).__name__,
                 "error_message": str(e),
-                "traceback": traceback.format_exc()
+                "traceback": traceback.format_exc(),
+                "error_time_seconds": error_time,
+                "user_request": user_request,
+                "orchestrator_state": {
+                    "flight_agent_available": bool(self.flight_agent),
+                    "config_valid": bool(config.EXA_API_KEY)
+                }
             }
+
             print(f"❌ CrewAI Error Details: {error_details}")
-            return {
+
+            # Log error operation
+            error_result = {
                 "success": False,
                 "error": str(e),
                 "error_details": error_details,
                 "orchestrator": "CrewAI",
                 "timestamp": datetime.now(timezone.utc).isoformat()
+            }
+
+            WeaveLogger.log_operation_error(operation_start, e, error_details)
+
+            return error_result
+
+    def _analyze_crew_result(self, result) -> Dict[str, Any]:
+        """Analyze CrewAI result for logging and metrics"""
+        try:
+            result_str = str(result)
+
+            analysis = {
+                "result_type": str(type(result).__name__),
+                "result_length": len(result_str),
+                "contains_flight_options": "ROUND-TRIP OPTIONS" in result_str,
+                "contains_budget_analysis": "BUDGET ANALYSIS" in result_str,
+                "contains_verified_tag": "VERIFIED" in result_str,
+                "contains_error": "error" in result_str.lower(),
+                "flight_options_count": result_str.count("✈️ OPTION") + result_str.count("✈️ RECOMMENDED"),
+                "price_mentions": result_str.count("$"),
+                "airline_mentions": len([airline for airline in ["United", "Delta", "American", "Lufthansa", "Air France"]
+                                       if airline in result_str]),
+                "has_booking_urls": "http" in result_str,
+                "completion_indicators": {
+                    "has_recommended": "RECOMMENDED" in result_str,
+                    "has_cheapest": "Cheapest" in result_str,
+                    "has_premium": "Premium" in result_str,
+                    "has_budget_breakdown": "budget" in result_str.lower()
+                }
+            }
+
+            return analysis
+
+        except Exception as e:
+            return {
+                "analysis_error": str(e),
+                "result_available": result is not None
             }
 
     def get_available_agents(self) -> Dict[str, Any]:

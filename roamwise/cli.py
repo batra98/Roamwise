@@ -1,8 +1,10 @@
 """
-RoamWise CLI - Multi-Agent Travel Planner
+RoamWise CLI - Multi-Agent Travel Planner with Enhanced Weave Logging
 """
 
 import typer
+import weave
+import time
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
@@ -15,6 +17,8 @@ import sys
 
 from .config import config
 from .agents import CrewAITripOrchestrator
+from .weave_functions import weave_trace, WeaveLogger
+from .weave_monitoring import weave_monitor, log_user_interaction, monitor
 
 # Initialize Rich console
 console = Console()
@@ -295,6 +299,155 @@ def agents():
 def version():
     """Show RoamWise version"""
     console.print("🌍 RoamWise v1.0.0 - Multi-Agent Travel Planner", style="bold blue")
+
+
+@app.command()
+@weave_monitor("cli_health_check")
+def health():
+    """Check system health and performance metrics"""
+    console.print(Panel.fit("🏥 RoamWise Health Check", style="bold green"))
+
+    try:
+        # Initialize Weave
+        weave.init(project_name="gbatra3-uw-madison/Roamwise")
+
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console,
+            transient=True
+        ) as progress:
+            task = progress.add_task("🔍 Checking system health...", total=None)
+
+            # Get health status
+            health_status = monitor.get_health_status()
+
+            progress.update(task, description="✅ Health check completed!")
+
+        # Display health status
+        status = health_status["status"]
+        status_color = {
+            "healthy": "green",
+            "warning": "yellow",
+            "critical": "red"
+        }.get(status, "white")
+
+        console.print(f"\n🏥 System Status: [{status_color}]{status.upper()}[/{status_color}]")
+
+        # Display alerts if any
+        alerts = health_status.get("alerts", [])
+        if alerts:
+            console.print("\n⚠️ [bold yellow]Alerts:[/bold yellow]")
+            for alert in alerts:
+                console.print(f"  • {alert}")
+        else:
+            console.print("\n✅ [green]No alerts - system running smoothly[/green]")
+
+        # Display performance summary
+        summary = health_status["summary"]
+
+        perf_table = Table(title="📊 Performance Summary")
+        perf_table.add_column("Metric", style="cyan")
+        perf_table.add_column("Value", style="green", justify="right")
+
+        perf_table.add_row("Total Operations", str(summary["total_operations"]))
+        perf_table.add_row("Total Errors", str(summary["total_errors"]))
+        perf_table.add_row("Error Rate", f"{summary['error_rate']:.2%}")
+        perf_table.add_row("System Uptime", f"{summary['system_uptime_seconds']:.1f}s")
+
+        recent = summary["recent_activity"]
+        perf_table.add_row("Recent Operations (5min)", str(recent["operations_last_5min"]))
+        perf_table.add_row("Recent Errors (5min)", str(recent["errors_last_5min"]))
+        perf_table.add_row("Avg Duration (5min)", f"{recent['avg_duration_last_5min']:.2f}s")
+
+        console.print(perf_table)
+
+        # Display operation counts
+        if summary["operation_counts"]:
+            op_table = Table(title="🔧 Operation Counts")
+            op_table.add_column("Operation", style="cyan")
+            op_table.add_column("Count", style="green", justify="right")
+
+            for op, count in summary["operation_counts"].items():
+                op_table.add_row(op, str(count))
+
+            console.print(op_table)
+
+    except Exception as e:
+        console.print(f"\n[red]❌ Health check failed: {str(e)}[/red]")
+
+
+@app.command()
+@weave_monitor("cli_api_health")
+def api_health():
+    """Check external API health and connectivity"""
+    console.print(Panel.fit("🌐 API Health Check", style="bold cyan"))
+
+    try:
+        # Initialize Weave
+        weave.init(project_name="gbatra3-uw-madison/Roamwise")
+
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console,
+            transient=True
+        ) as progress:
+            task = progress.add_task("🔍 Checking API connectivity...", total=None)
+
+            # Import here to avoid circular imports
+            from .weave_functions import check_api_health
+
+            health_results = check_api_health()
+
+            progress.update(task, description="✅ API health check completed!")
+
+        # Display API health results
+        apis = health_results.get("apis", {})
+
+        api_table = Table(title="🌐 API Health Status")
+        api_table.add_column("API", style="cyan")
+        api_table.add_column("Status", style="bold")
+        api_table.add_column("Response Time", style="yellow", justify="right")
+        api_table.add_column("Details", style="dim")
+
+        for api_name, api_status in apis.items():
+            status = api_status.get("status", "unknown")
+            status_color = {
+                "healthy": "green",
+                "unhealthy": "yellow",
+                "error": "red"
+            }.get(status, "white")
+
+            response_time = api_status.get("response_time_seconds", "N/A")
+            response_time_str = f"{response_time:.3f}s" if isinstance(response_time, (int, float)) else str(response_time)
+
+            details = ""
+            if status == "error":
+                details = api_status.get("error", "Unknown error")[:50]
+            elif "status_code" in api_status:
+                details = f"HTTP {api_status['status_code']}"
+
+            api_table.add_row(
+                api_name.upper(),
+                f"[{status_color}]{status.upper()}[/{status_color}]",
+                response_time_str,
+                details
+            )
+
+        console.print(api_table)
+
+        # Overall health summary
+        healthy_apis = sum(1 for api in apis.values() if api.get("status") == "healthy")
+        total_apis = len(apis)
+
+        if healthy_apis == total_apis:
+            console.print(f"\n✅ [green]All {total_apis} APIs are healthy[/green]")
+        else:
+            console.print(f"\n⚠️ [yellow]{healthy_apis}/{total_apis} APIs are healthy[/yellow]")
+
+    except Exception as e:
+        console.print(f"\n[red]❌ API health check failed: {str(e)}[/red]")
 
 
 if __name__ == "__main__":
