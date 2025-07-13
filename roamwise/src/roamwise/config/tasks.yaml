@@ -1,0 +1,70 @@
+flight_search_task:
+  description: >
+    Perform initial flight search from {origin} to {destination} for {travel_dates}.
+    Consider the budget of {budget} and traveler preferences: {preferences}.
+    This is the INITIAL SEARCH phase - focus on speed and broad coverage:
+    1. Use EXA search tool to find flight information and booking websites:
+       - "flights {origin} to {destination} {travel_dates} price airline booking"
+       - "{origin} {destination} flight deals March 2025 schedule"
+    2. Provide practical recommendations based on available EXA information.
+    3. Include clear indicators that more detailed information is available on request.
+    Current year is {current_year} for seasonal context.
+  expected_output: >
+    Provide exactly 3 flight options: 1 recommended option and 2 alternatives.
+    For each option include whatever details you can find from EXA search:
+    - Airline name (or likely airlines for this route)
+    - Price range (from EXA results or reasonable estimates)
+    - Approximate departure/arrival times (if available)
+    - Duration and stops (typical for this route)
+    - Booking website suggestions
+    End with: "💡 Ask me for more specific details about any flight option and I'll search for additional information!"
+  agent: flight_agent
+
+hotel_search_task:
+  description: >
+    Perform initial hotel search in {destination} for {travel_dates}.
+    Consider the budget of {budget} and traveler preferences: {preferences}.
+    This is the INITIAL SEARCH phase - focus on speed and broad coverage:
+    1. Use EXA search tool to find hotel information and booking websites:
+       - "hotels in {destination} {travel_dates} price rating booking"
+       - "{destination} accommodation deals March 2025 amenities"
+    2. Provide practical recommendations based on available EXA information.
+    3. Include clear indicators that more detailed information is available on request.
+    Current year is {current_year} for seasonal pricing context.
+  expected_output: >
+    Provide exactly 3 hotel options: 1 recommended option and 2 alternatives.
+    For each option include whatever details you can find from EXA search:
+    - Hotel name (or types of hotels available)
+    - Location/area (general neighborhoods)
+    - Price range per night (from EXA results or reasonable estimates)
+    - Key amenities (typical amenities for hotel type)
+    - Rating estimates (if available)
+    - Booking website suggestions
+    End with: "💡 Ask me for more specific details about any hotel option and I'll search for additional information!"
+  agent: hotel_agent
+
+
+
+coordination_task:
+  description: >
+    Coordinate the flight and hotel search results to create a practical travel plan
+    from {origin} to {destination} for {travel_dates} within {budget} budget.
+    Work with whatever information the specialist agents were able to gather, even if incomplete.
+    Review available flight options and hotel options provided by the specialist agents.
+    Fill in reasonable gaps using your travel planning expertise. Consider factors like
+    typical flight schedules, hotel check-in procedures, estimated costs, and overall convenience.
+    Provide strategic recommendations for the best travel package combinations based on
+    available information and reasonable estimates where needed.
+  expected_output: >
+    A practical travel plan formatted as markdown that includes:
+    - Executive summary of the recommended travel package
+    - Best flight option with reasoning (based on available info)
+    - Best hotel option with reasoning (based on available info)
+    - Estimated cost breakdown (with ranges where exact prices unavailable)
+    - Alternative combinations and backup plans
+    - Suggested travel timeline with key dates and times
+    - Practical next steps for booking (specific links if available, or recommended approach)
+    - Important considerations and travel tips
+    Be transparent about what information is confirmed vs estimated. Focus on providing
+    actionable guidance that helps the traveler plan their trip effectively.
+  agent: manager
