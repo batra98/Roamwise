@@ -17,6 +17,7 @@ import sys
 
 from .config import config
 from .agents import CrewAITripOrchestrator
+from .hotel_agent import CrewAIHotelOrchestrator
 from .weave_functions import weave_trace, WeaveLogger
 from .weave_monitoring import weave_monitor, log_user_interaction, monitor
 
@@ -30,7 +31,7 @@ def display_banner():
     banner = """
     ╔══════════════════════════════════════════════════════════════╗
     ║                    🌍 RoamWise                               ║
-    ║              Multi-Agent Travel Planner                     ║
+    ║              Multi-Agent Travel Planner                      ║
     ║                                                              ║
     ║  ✈️  Intelligent Flight Search  🏨 Hotel Recommendations    ║
     ║  🎯 Budget Analysis            📊 Weave Integration         ║
@@ -251,6 +252,141 @@ def search(
         console.print(f"❌ Error: {e}", style="red")
         sys.exit(1)
 
+# Add this new command to your existing cli.py
+@app.command()
+
+@app.command()
+def hotels(
+    location: Optional[str] = typer.Option(None, "--location", "-l", help="Hotel location"),
+    check_in: Optional[str] = typer.Option(None, "--checkin", "-c", help="Check-in date (YYYY-MM-DD)"),
+    check_out: Optional[str] = typer.Option(None, "--checkout", "-o", help="Check-out date (YYYY-MM-DD)"),
+    budget: Optional[float] = typer.Option(None, "--budget", "-b", help="Maximum budget"),
+    guests: int = typer.Option(2, "--guests", "-g", help="Number of guests")  # Fixed line
+):
+    """Search for hotels with interactive prompts"""
+    display_banner()
+    
+    try:
+        # Initialize configuration
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console,
+        ) as progress:
+            task = progress.add_task("Initializing RoamWise Hotels...", total=None)
+            
+            config.validate()
+            config.init_weave()
+            
+            progress.update(task, description="✅ RoamWise Hotels initialized successfully!")
+        
+        console.print()
+        
+        # Interactive prompts if not provided
+        if not location:
+            location = Prompt.ask("📍 [bold cyan]Hotel location[/bold cyan]", default="San Francisco")
+        
+        if not check_in:
+            check_in = Prompt.ask("📅 [bold cyan]Check-in date[/bold cyan] (YYYY-MM-DD)", default="2025-07-15")
+            while not validate_date(check_in):
+                console.print("❌ Invalid date format. Please use YYYY-MM-DD", style="red")
+                check_in = Prompt.ask("📅 [bold cyan]Check-in date[/bold cyan] (YYYY-MM-DD)")
+        
+        if not check_out:
+            nights = int(Prompt.ask("🌙 [bold cyan]Number of nights[/bold cyan]", default="3"))
+            check_in_date = datetime.strptime(check_in, "%Y-%m-%d")
+            check_out_date = check_in_date + timedelta(days=nights)
+            check_out = check_out_date.strftime("%Y-%m-%d")
+
+        if not budget:
+            budget = float(Prompt.ask("💰 [bold cyan]Maximum budget[/bold cyan] ($)", default="1500"))
+        
+        # Display hotel search summary
+        console.print()
+        stay_panel = Panel(
+            f"📍 [bold]{location}[/bold]\n"
+            f"📅 Check-in: [green]{check_in}[/green] → Check-out: [green]{check_out}[/green]\n"
+            f"👥 Guests: [yellow]{guests}[/yellow]\n"
+            f"💰 Budget: [green]${budget:,.0f}[/green]",
+            title="🏨 Hotel Search Summary",
+            border_style="blue"
+        )
+        console.print(stay_panel)
+        console.print()
+        
+        # Confirm search
+        if not Confirm.ask("🔍 [bold cyan]Search for hotels?[/bold cyan]", default=True):
+            console.print("👋 Search cancelled. Happy travels!", style="yellow")
+            return
+        
+        # Initialize Hotel Orchestrator
+        orchestrator = CrewAIHotelOrchestrator()
+
+        # Search hotels with progress indicator
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console,
+        ) as progress:
+            task = progress.add_task("🤖 Hotel Agents working...", total=None)
+
+            hotel_result = orchestrator.find_hotels(
+                location=location,
+                check_in=check_in,
+                check_out=check_out,
+                budget=budget,
+                guests=guests
+            )
+
+            progress.update(task, description="✅ Hotel Agents completed!")
+        
+        console.print()
+        
+        # Display results
+        if hotel_result.get('success'):
+            console.print(f"🎉 Hotel search completed successfully!")
+            console.print()
+
+            # Show result
+            crew_result = hotel_result.get('crew_result', '')
+            console.print(f"🤖 Hotel Search Results:")
+
+            # Extract text content from result object
+            if hasattr(crew_result, 'raw'):
+                result_text = str(crew_result.raw)
+            elif hasattr(crew_result, '__str__'):
+                result_text = str(crew_result)
+            else:
+                result_text = "Result completed successfully"
+
+            console.print(Panel(result_text, title="🏨 Hotel Options", border_style="green"))
+            console.print()
+
+            console.print(f"✅ Hotel search and analysis completed by specialized agents")
+            console.print(f"📊 All agent interactions logged in Weave for full traceability")
+
+        else:
+            console.print("❌ Hotel search failed", style="red")
+            if hotel_result.get('error'):
+                console.print(f"Error: {hotel_result['error']}", style="dim red")
+            
+            # Weave trace info
+            console.print()
+            console.print(
+                Panel(
+                    f"📊 All searches logged in Weave for analysis\n"
+                    f"🔗 View traces: [link]https://wandb.ai/gbatra3-uw-madison/Roamwise/weave[/link]",
+                    title="📈 Analytics",
+                    border_style="dim"
+                )
+            )
+    
+    except KeyboardInterrupt:
+        console.print("\n👋 Search cancelled. Happy travels!", style="yellow")
+        sys.exit(0)
+    except Exception as e:
+        console.print(f"❌ Error: {e}", style="red")
+        sys.exit(1)
 
 @app.command()
 def agents():
